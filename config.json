@@ -1,0 +1,12 @@
+{
+  "fixtures": [
+    {
+      "name": "1",
+      "start_address": 1
+    },
+    {
+      "name": "2",
+      "start_address": 7
+    }
+  ]
+}
