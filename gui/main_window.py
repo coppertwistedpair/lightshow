@@ -188,25 +188,62 @@ class SwatchRow(QWidget):
         event.acceptProposedAction()
 
 
-class NameDialog(QDialog):
-    """Simple dialog asking the user to type a name."""
+class FixtureDialog(QDialog):
+    """Asks for a fixture's name and DMX start address.
 
-    def __init__(self, prompt, parent=None):
+    `on_ok(name, address)` is called when OK is pressed; if it raises, the error
+    is shown and the dialog stays open so the user can fix the value.
+    """
+
+    def __init__(self, title, on_ok, name="", address=1, max_address=507,
+                 name_editable=True, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Name")
+        self.setWindowTitle(title)
+        self._on_ok = on_ok
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(prompt))
-        self.edit = QLineEdit()
+
+        layout.addWidget(QLabel("Name (e.g. 'Stage Left'):"))
+        self.edit = QLineEdit(name)
+        self.edit.setEnabled(name_editable)
         layout.addWidget(self.edit)
+
+        layout.addWidget(QLabel("DMX start address (must match the address set on the light):"))
+        addr_row = QHBoxLayout()
+        self.addr_spin = QSpinBox()
+        self.addr_spin.setRange(1, max_address)
+        self.addr_spin.setValue(address)
+        self.addr_spin.setFixedWidth(80)
+        addr_row.addWidget(self.addr_spin)
+        self.range_label = QLabel()
+        addr_row.addWidget(self.range_label)
+        addr_row.addStretch()
+        layout.addLayout(addr_row)
+        self.addr_spin.valueChanged.connect(self._update_range_label)
+        self._update_range_label(address)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self._try_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def get_name(self):
-        return self.edit.text().strip()
+        (self.edit if name_editable else self.addr_spin).setFocus()
+
+    def _update_range_label(self, start):
+        self.range_label.setText(f"uses channels {start}–{start + 5}")
+
+    def _try_accept(self):
+        name = self.edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Name Needed", "Give this light a name.")
+            return
+        try:
+            self._on_ok(name, self.addr_spin.value())
+        except ValueError as e:
+            QMessageBox.warning(self, "Can't Use That Address", str(e))
+            return
+        self.accept()
 
 
 class MainWindow(QMainWindow):
@@ -255,6 +292,11 @@ class MainWindow(QMainWindow):
         add_btn.clicked.connect(self._add_fixture)
         layout.addWidget(add_btn)
 
+        edit_btn = QPushButton("Change Address")
+        edit_btn.clicked.connect(self._edit_fixture)
+        layout.addWidget(edit_btn)
+        self.fixture_list.itemDoubleClicked.connect(lambda _item: self._edit_fixture())
+
         remove_btn = QPushButton("Remove Selected")
         remove_btn.clicked.connect(self._remove_fixture)
         layout.addWidget(remove_btn)
@@ -268,20 +310,43 @@ class MainWindow(QMainWindow):
             self.fixture_list.addItem(f"{f.name}  —  ch {f.start_address}–{end}")
 
     def _add_fixture(self):
-        dlg = NameDialog("Give this light a name (e.g. 'Stage Left'):", self)
-        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.get_name():
+        suggested = self.fixtures.next_start_address()
+        if suggested is None:
+            QMessageBox.critical(self, "Error", "No DMX addresses left (universe max 512 channels).")
             return
-        try:
-            fixture = self.fixtures.add_fixture(dlg.get_name())
-            QMessageBox.information(
-                self, "Light Added",
-                f"'{fixture.name}' added.\n\n"
-                f"On the light itself, set the DMX start address to:  {fixture.start_address}\n\n"
-                f"(Uses channels {fixture.start_address} – {fixture.start_address + 5})"
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
-        self._refresh_fixture_list()
+        added = []
+        dlg = FixtureDialog(
+            "Add Fixture", lambda name, addr: added.append(self.fixtures.add_fixture(name, addr)),
+            address=suggested, max_address=self.fixtures.MAX_START, parent=self,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted and added:
+            self._refresh_fixture_list()
+            self.fixture_list.setCurrentRow(len(self.fixtures.fixtures) - 1)
+
+    def _edit_fixture(self):
+        row = self.fixture_list.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "Nothing Selected", "Click a fixture in the list first.")
+            return
+        fixture = self.fixtures.fixtures[row]
+        old_start = fixture.start_address
+        dlg = FixtureDialog(
+            f"Change Address — {fixture.name}",
+            lambda _name, addr: self.fixtures.set_start_address(row, addr),
+            name=fixture.name, address=old_start, max_address=self.fixtures.MAX_START,
+            name_editable=False, parent=self,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted and fixture.start_address != old_start:
+            self._clear_channels(old_start)
+            self._refresh_fixture_list()
+            self.fixture_list.setCurrentRow(row)
+
+    def _clear_channels(self, start):
+        # Zero channels no fixture uses any more, so a running show doesn't leave them stuck on
+        in_use = {f.start_address + i for f in self.fixtures.fixtures for i in range(6)}
+        for ch in range(start, start + 6):
+            if ch not in in_use:
+                self.dmx.set_channel(ch, 0)
 
     def _remove_fixture(self):
         row = self.fixture_list.currentRow()
@@ -294,7 +359,9 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if confirm == QMessageBox.StandardButton.Yes:
+            old_start = self.fixtures.fixtures[row].start_address
             self.fixtures.remove_fixture(row)
+            self._clear_channels(old_start)
             self._refresh_fixture_list()
 
     # ── Control panel ─────────────────────────────────────────────────────────

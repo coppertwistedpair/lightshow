@@ -23,32 +23,62 @@ class FixtureManager:
         self.fixtures = []
         self._load()
 
-    def _next_start_address(self):
+    MAX_START = 512 - Fixture.CHANNELS + 1  # last start address that still fits in the universe
+
+    def _overlaps(self, start, ignore=None):
+        """Return the fixture whose channels overlap a fixture starting at `start`, or None."""
+        end = start + Fixture.CHANNELS - 1
+        for f in self.fixtures:
+            if f is ignore:
+                continue
+            if start <= f.start_address + Fixture.CHANNELS - 1 and f.start_address <= end:
+                return f
+        return None
+
+    def _validate_address(self, start, ignore=None):
+        if not 1 <= start <= self.MAX_START:
+            raise ValueError(f"Start address must be between 1 and {self.MAX_START} "
+                             f"(each light uses {Fixture.CHANNELS} channels).")
+        clash = self._overlaps(start, ignore)
+        if clash:
+            raise ValueError(
+                f"Channels {start}–{start + Fixture.CHANNELS - 1} overlap '{clash.name}' "
+                f"(ch {clash.start_address}–{clash.start_address + Fixture.CHANNELS - 1}).")
+
+    def next_start_address(self):
+        """Suggest an address: right after the highest fixture, else the first free gap."""
         if not self.fixtures:
             return 1
-        last = self.fixtures[-1]
-        return last.start_address + Fixture.CHANNELS
+        after_last = max(f.start_address for f in self.fixtures) + Fixture.CHANNELS
+        if after_last <= self.MAX_START and not self._overlaps(after_last):
+            return after_last
+        for start in range(1, self.MAX_START + 1):
+            if not self._overlaps(start):
+                return start
+        return None
 
-    def add_fixture(self, name):
-        start = self._next_start_address()
-        if start + Fixture.CHANNELS - 1 > 512:
+    def add_fixture(self, name, start_address=None):
+        start = self.next_start_address() if start_address is None else int(start_address)
+        if start is None:
             raise ValueError("No DMX addresses left (universe max 512 channels).")
+        self._validate_address(start)
         fixture = Fixture(name, start)
         self.fixtures.append(fixture)
         self._save()
         return fixture
 
+    def set_start_address(self, index, start_address):
+        fixture = self.fixtures[index]
+        start = int(start_address)
+        self._validate_address(start, ignore=fixture)
+        fixture.start_address = start
+        self._save()
+
     def remove_fixture(self, index):
+        # Other fixtures keep their addresses: they match what is set on the physical lights.
         if 0 <= index < len(self.fixtures):
             self.fixtures.pop(index)
-            self._reassign_addresses()
             self._save()
-
-    def _reassign_addresses(self):
-        addr = 1
-        for f in self.fixtures:
-            f.start_address = addr
-            addr += Fixture.CHANNELS
 
     def _save(self):
         data = {'fixtures': [f.to_dict() for f in self.fixtures]}
