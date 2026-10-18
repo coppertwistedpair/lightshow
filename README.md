@@ -1,8 +1,15 @@
 # Lightshow
 
 Desktop app for running color cycles and animations on DMX uplights through an
-**Enttec DMX USB Pro**. Built for the Rockville Rockwedge in 6-channel mode
-(R, G, B, Amber, White, UV). The fixture profile is in `profiles/`.
+**Enttec DMX USB Pro**. Supported lights (set them to **6-channel mode**):
+
+| Model | Ch1 | Ch2 | Ch3 | Ch4 | Ch5 | Ch6 |
+|---|---|---|---|---|---|---|
+| Rockville Rockwedge | Red | Green | Blue | Amber | White | UV |
+| Rockville BestPar 50 | Red | Green | Blue | White | Amber | Purple |
+
+Pick the model when adding a light. Models are defined in `FIXTURE_TYPES` in
+`core/fixture_manager.py`.
 
 ## Download and run (easiest)
 
@@ -30,8 +37,9 @@ py -3 main.py
 
 1. Plug in the Enttec, click **Refresh**, pick its COM port, click **Connect**.
    (Not sure which port? Device Manager → Ports (COM & LPT) → "USB Serial Port".)
-2. Add each light under **Fixtures**. The app tells you which DMX start
-   address to set on the light itself (6 channels each: 1, 7, 13, ...).
+2. Add each light under **Fixtures**: pick its model and enter the DMX start
+   address set on the light (6 channels each). **Edit Selected** or a
+   double-click changes the model or address later.
 3. Press **GO** for the color cycle, or pick an animation or holiday preset.
 
 ## Making a release

@@ -5,20 +5,8 @@ import colorsys
 
 
 def _apply(dmx, fixture, color):
-    r  = color[0] if len(color) > 0 else 0
-    g  = color[1] if len(color) > 1 else 0
-    b  = color[2] if len(color) > 2 else 0
-    a  = color[3] if len(color) > 3 else 0
-    w  = color[4] if len(color) > 4 else 0
-    uv = color[5] if len(color) > 5 else 0
-    sa = fixture.start_address
-    # Fixed 6-channel mapping (Rockwedge GDTF): Ch1=R Ch2=G Ch3=B Ch4=A Ch5=W Ch6=UV
-    dmx.set_channel(sa + 0, r)
-    dmx.set_channel(sa + 1, g)
-    dmx.set_channel(sa + 2, b)
-    dmx.set_channel(sa + 3, w)
-    dmx.set_channel(sa + 4, a)
-    dmx.set_channel(sa + 5, uv)
+    # color is (r, g, b, a, w, uv); the fixture maps it to its own channel order
+    fixture.apply(dmx, color)
 
 
 class _BaseMode:

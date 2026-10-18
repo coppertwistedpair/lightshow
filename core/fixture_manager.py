@@ -1,20 +1,52 @@
 import json
 import os
 
+# Colors throughout the app are 6-tuples in this order:
+COLOR_FIELDS = ('r', 'g', 'b', 'a', 'w', 'uv')  # red, green, blue, amber, white, UV/purple
+
+# Supported lights (6-channel DMX mode). 'channels' lists which color field
+# goes on Ch1, Ch2, ... for that model.
+FIXTURE_TYPES = {
+    'rockwedge': {
+        'label': 'Rockville Rockwedge',
+        'channels': ('r', 'g', 'b', 'a', 'w', 'uv'),  # from the Rockwedge GDTF profile
+    },
+    'bestpar50': {
+        'label': 'Rockville BestPar 50',
+        'channels': ('r', 'g', 'b', 'w', 'a', 'uv'),  # manual: R, G, B, White, Amber, Purple
+    },
+}
+DEFAULT_FIXTURE_TYPE = 'rockwedge'  # configs saved before types existed were all Rockwedges
+
 
 class Fixture:
-    CHANNELS = 6  # Ch1=R, Ch2=G, Ch3=B, Ch4=A, Ch5=W, Ch6=UV/Purple
+    CHANNELS = 6  # every supported type uses 6 channels
 
-    def __init__(self, name, start_address):
+    def __init__(self, name, start_address, fixture_type=DEFAULT_FIXTURE_TYPE):
+        if fixture_type not in FIXTURE_TYPES:
+            raise ValueError(f"Unknown fixture type '{fixture_type}'.")
         self.name = name
         self.start_address = start_address
+        self.fixture_type = fixture_type
+
+    @property
+    def type_label(self):
+        return FIXTURE_TYPES[self.fixture_type]['label']
+
+    def channel_values(self, color):
+        """Map a (r, g, b, a, w, uv) color to this fixture's DMX channel order."""
+        by_field = {f: (color[i] if i < len(color) else 0) for i, f in enumerate(COLOR_FIELDS)}
+        return [by_field[f] for f in FIXTURE_TYPES[self.fixture_type]['channels']]
+
+    def apply(self, dmx, color):
+        dmx.set_channels(self.start_address, self.channel_values(color))
 
     def to_dict(self):
-        return {'name': self.name, 'start_address': self.start_address}
+        return {'name': self.name, 'start_address': self.start_address, 'type': self.fixture_type}
 
     @staticmethod
     def from_dict(d):
-        return Fixture(d['name'], d['start_address'])
+        return Fixture(d['name'], d['start_address'], d.get('type', DEFAULT_FIXTURE_TYPE))
 
 
 class FixtureManager:
@@ -57,21 +89,24 @@ class FixtureManager:
                 return start
         return None
 
-    def add_fixture(self, name, start_address=None):
+    def add_fixture(self, name, start_address=None, fixture_type=DEFAULT_FIXTURE_TYPE):
         start = self.next_start_address() if start_address is None else int(start_address)
         if start is None:
             raise ValueError("No DMX addresses left (universe max 512 channels).")
         self._validate_address(start)
-        fixture = Fixture(name, start)
+        fixture = Fixture(name, start, fixture_type)
         self.fixtures.append(fixture)
         self._save()
         return fixture
 
-    def set_start_address(self, index, start_address):
+    def update_fixture(self, index, start_address, fixture_type):
         fixture = self.fixtures[index]
         start = int(start_address)
+        if fixture_type not in FIXTURE_TYPES:
+            raise ValueError(f"Unknown fixture type '{fixture_type}'.")
         self._validate_address(start, ignore=fixture)
         fixture.start_address = start
+        fixture.fixture_type = fixture_type
         self._save()
 
     def remove_fixture(self, index):

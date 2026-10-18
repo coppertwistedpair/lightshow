@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, QEvent, QMimeData, QTimer
 from PyQt6.QtGui import QColor, QFont, QDrag
 import serial.tools.list_ports
 from core.animations import HOLIDAY_PRESETS
+from core.fixture_manager import FIXTURE_TYPES
 
 
 class ColorSwatch(QPushButton):
@@ -189,18 +190,26 @@ class SwatchRow(QWidget):
 
 
 class FixtureDialog(QDialog):
-    """Asks for a fixture's name and DMX start address.
+    """Asks for a fixture's type, name and DMX start address.
 
-    `on_ok(name, address)` is called when OK is pressed; if it raises, the error
+    `on_ok(name, address, fixture_type)` is called when OK is pressed; if it raises, the error
     is shown and the dialog stays open so the user can fix the value.
     """
 
     def __init__(self, title, on_ok, name="", address=1, max_address=507,
-                 name_editable=True, parent=None):
+                 fixture_type=None, name_editable=True, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self._on_ok = on_ok
         layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("Light model:"))
+        self.type_combo = QComboBox()
+        for key, info in FIXTURE_TYPES.items():
+            self.type_combo.addItem(info['label'], key)
+        if fixture_type is not None:
+            self.type_combo.setCurrentIndex(self.type_combo.findData(fixture_type))
+        layout.addWidget(self.type_combo)
 
         layout.addWidget(QLabel("Name (e.g. 'Stage Left'):"))
         self.edit = QLineEdit(name)
@@ -239,7 +248,7 @@ class FixtureDialog(QDialog):
             QMessageBox.warning(self, "Name Needed", "Give this light a name.")
             return
         try:
-            self._on_ok(name, self.addr_spin.value())
+            self._on_ok(name, self.addr_spin.value(), self.type_combo.currentData())
         except ValueError as e:
             QMessageBox.warning(self, "Can't Use That Address", str(e))
             return
@@ -292,7 +301,7 @@ class MainWindow(QMainWindow):
         add_btn.clicked.connect(self._add_fixture)
         layout.addWidget(add_btn)
 
-        edit_btn = QPushButton("Change Address")
+        edit_btn = QPushButton("Edit Selected")
         edit_btn.clicked.connect(self._edit_fixture)
         layout.addWidget(edit_btn)
         self.fixture_list.itemDoubleClicked.connect(lambda _item: self._edit_fixture())
@@ -307,17 +316,21 @@ class MainWindow(QMainWindow):
         self.fixture_list.clear()
         for f in self.fixtures.fixtures:
             end = f.start_address + 5
-            self.fixture_list.addItem(f"{f.name}  —  ch {f.start_address}–{end}")
+            self.fixture_list.addItem(f"{f.name}  —  {f.type_label}  —  ch {f.start_address}–{end}")
 
     def _add_fixture(self):
         suggested = self.fixtures.next_start_address()
         if suggested is None:
             QMessageBox.critical(self, "Error", "No DMX addresses left (universe max 512 channels).")
             return
+        # Pre-select the model of the last light added; most rigs add several of one kind
+        last_type = self.fixtures.fixtures[-1].fixture_type if self.fixtures.fixtures else None
         added = []
         dlg = FixtureDialog(
-            "Add Fixture", lambda name, addr: added.append(self.fixtures.add_fixture(name, addr)),
-            address=suggested, max_address=self.fixtures.MAX_START, parent=self,
+            "Add Fixture",
+            lambda name, addr, ftype: added.append(self.fixtures.add_fixture(name, addr, ftype)),
+            address=suggested, max_address=self.fixtures.MAX_START, fixture_type=last_type,
+            parent=self,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted and added:
             self._refresh_fixture_list()
@@ -331,13 +344,14 @@ class MainWindow(QMainWindow):
         fixture = self.fixtures.fixtures[row]
         old_start = fixture.start_address
         dlg = FixtureDialog(
-            f"Change Address — {fixture.name}",
-            lambda _name, addr: self.fixtures.set_start_address(row, addr),
+            f"Edit Fixture — {fixture.name}",
+            lambda _name, addr, ftype: self.fixtures.update_fixture(row, addr, ftype),
             name=fixture.name, address=old_start, max_address=self.fixtures.MAX_START,
-            name_editable=False, parent=self,
+            fixture_type=fixture.fixture_type, name_editable=False, parent=self,
         )
-        if dlg.exec() == QDialog.DialogCode.Accepted and fixture.start_address != old_start:
-            self._clear_channels(old_start)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            if fixture.start_address != old_start:
+                self._clear_channels(old_start)
             self._refresh_fixture_list()
             self.fixture_list.setCurrentRow(row)
 

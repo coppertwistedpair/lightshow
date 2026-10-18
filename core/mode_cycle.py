@@ -113,20 +113,8 @@ class ColorCycleMode:
             time.sleep(0.025)
 
     def _apply_color_to_fixture(self, fixture, color):
-        r  = color[0] if len(color) > 0 else 0
-        g  = color[1] if len(color) > 1 else 0
-        b  = color[2] if len(color) > 2 else 0
-        a  = color[3] if len(color) > 3 else 0
-        w  = color[4] if len(color) > 4 else 0
-        uv = color[5] if len(color) > 5 else 0
-        sa = fixture.start_address
-        # Fixed 6-channel mapping (Rockwedge GDTF): Ch1=R Ch2=G Ch3=B Ch4=A Ch5=W Ch6=UV
-        self.dmx.set_channel(sa + 0, r)
-        self.dmx.set_channel(sa + 1, g)
-        self.dmx.set_channel(sa + 2, b)
-        self.dmx.set_channel(sa + 3, w)
-        self.dmx.set_channel(sa + 4, a)
-        self.dmx.set_channel(sa + 5, uv)
+        # color is (r, g, b, a, w, uv); the fixture maps it to its own channel order
+        fixture.apply(self.dmx, color)
 
     def _apply_color_all(self, rgb):
         for fixture in list(self.fixtures.fixtures):
