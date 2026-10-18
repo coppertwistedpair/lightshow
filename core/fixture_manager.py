@@ -129,6 +129,34 @@ class FixtureManager:
         self._save()
         return fixture
 
+    def add_fixtures(self, names, start_address, step, fixture_type=DEFAULT_FIXTURE_TYPE):
+        """Add several fixtures of one model at start_address, start_address + step, ...
+
+        All-or-nothing: if any address is invalid or overlaps, nothing is added.
+        """
+        if fixture_type not in FIXTURE_TYPES:
+            raise ValueError(f"Unknown fixture type '{fixture_type}'.")
+        if step < channel_count(fixture_type):
+            raise ValueError(f"Address step must be at least {channel_count(fixture_type)} "
+                             f"so the lights don't overlap.")
+        added = []
+        try:
+            for i, name in enumerate(names):
+                start = int(start_address) + i * step
+                try:
+                    self._validate_address(start, fixture_type)
+                except ValueError as e:
+                    raise ValueError(f"'{name}' at address {start}: {e}") from None
+                fixture = Fixture(name, start, fixture_type)
+                self.fixtures.append(fixture)
+                added.append(fixture)
+        except ValueError:
+            for f in added:
+                self.fixtures.remove(f)
+            raise
+        self._save()
+        return added
+
     def update_fixture(self, index, start_address, fixture_type):
         fixture = self.fixtures[index]
         start = int(start_address)

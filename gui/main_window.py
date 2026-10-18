@@ -265,6 +265,116 @@ class FixtureDialog(QDialog):
         self.accept()
 
 
+class BulkAddDialog(QDialog):
+    """Adds several lights of one model with evenly spaced addresses.
+
+    `on_ok(names, first_address, step, fixture_type)` is called when OK is pressed;
+    if it raises, the error is shown and the dialog stays open.
+    `suggest_address(fixture_type)` gives a free first address for the chosen model.
+    """
+
+    def __init__(self, on_ok, suggest_address, fixture_type=DEFAULT_FIXTURE_TYPE, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Multiple Fixtures")
+        self._on_ok = on_ok
+        self._suggest_address = suggest_address
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("Light model (all lights must be set to this DMX mode):"))
+        self.type_combo = QComboBox()
+        for key, info in FIXTURE_TYPES.items():
+            self.type_combo.addItem(info['label'], key)
+        self.type_combo.setCurrentIndex(self.type_combo.findData(fixture_type))
+        layout.addWidget(self.type_combo)
+
+        form = QHBoxLayout()
+        form.addWidget(QLabel("How many:"))
+        self.count_spin = QSpinBox()
+        self.count_spin.setRange(1, 100)
+        self.count_spin.setValue(4)
+        form.addWidget(self.count_spin)
+        form.addSpacing(12)
+        form.addWidget(QLabel("Name:"))
+        self.name_edit = QLineEdit("Light")
+        form.addWidget(self.name_edit)
+        layout.addLayout(form)
+
+        addr = QHBoxLayout()
+        addr.addWidget(QLabel("First address:"))
+        self.addr_spin = QSpinBox()
+        self.addr_spin.setRange(1, 512)
+        addr.addWidget(self.addr_spin)
+        addr.addSpacing(12)
+        addr.addWidget(QLabel("Address step:"))
+        self.step_spin = QSpinBox()
+        self.step_spin.setRange(1, 512)
+        self.step_spin.setToolTip("Gap between each light's start address. "
+                                  "Equal to the channel count = packed back to back.")
+        addr.addWidget(self.step_spin)
+        addr.addStretch()
+        layout.addLayout(addr)
+
+        self.preview = QLabel()
+        self.preview.setWordWrap(True)
+        layout.addWidget(self.preview)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._try_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.type_combo.currentIndexChanged.connect(self._on_type_changed)
+        for w in (self.count_spin, self.addr_spin, self.step_spin):
+            w.valueChanged.connect(self._update_preview)
+        self.name_edit.textChanged.connect(self._update_preview)
+        self._on_type_changed()
+
+    def _fixture_type(self):
+        return self.type_combo.currentData()
+
+    def _on_type_changed(self):
+        count = channel_count(self._fixture_type())
+        self.step_spin.setMinimum(count)
+        self.step_spin.setValue(count)
+        suggested = self._suggest_address(self._fixture_type())
+        if suggested is not None:
+            self.addr_spin.setValue(suggested)
+        self._update_preview()
+
+    def names(self):
+        base = self.name_edit.text().strip()
+        return [f"{base} {i + 1}" for i in range(self.count_spin.value())]
+
+    def _update_preview(self):
+        names = self.names()
+        first, step = self.addr_spin.value(), self.step_spin.value()
+        count = channel_count(self._fixture_type())
+        last_start = first + (len(names) - 1) * step
+        lines = [f"{n}  →  address {first + i * step}" for i, n in enumerate(names[:3])]
+        if len(names) > 4:
+            lines.append("…")
+        if len(names) > 3:
+            lines.append(f"{names[-1]}  →  address {last_start}")
+        lines.append(f"Uses channels {first}–{last_start + count - 1}.")
+        if last_start + count - 1 > 512:
+            lines.append("⚠ Doesn't fit in the 512-channel universe.")
+        self.preview.setText("\n".join(lines))
+
+    def _try_accept(self):
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "Name Needed", "Give these lights a name.")
+            return
+        try:
+            self._on_ok(self.names(), self.addr_spin.value(), self.step_spin.value(),
+                        self._fixture_type())
+        except ValueError as e:
+            QMessageBox.warning(self, "Can't Add These Lights", str(e))
+            return
+        self.accept()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, dmx_output, fixture_manager, cycle_mode,
                  rainbow_mode, strobe_mode, candle_mode, police_mode, fireworks_mode):
@@ -311,6 +421,10 @@ class MainWindow(QMainWindow):
         add_btn.clicked.connect(self._add_fixture)
         layout.addWidget(add_btn)
 
+        bulk_btn = QPushButton("+ Add Multiple…")
+        bulk_btn.clicked.connect(self._add_multiple_fixtures)
+        layout.addWidget(bulk_btn)
+
         edit_btn = QPushButton("Edit Selected")
         edit_btn.clicked.connect(self._edit_fixture)
         layout.addWidget(edit_btn)
@@ -341,6 +455,19 @@ class MainWindow(QMainWindow):
             "Add Fixture",
             lambda name, addr, ftype: added.append(self.fixtures.add_fixture(name, addr, ftype)),
             address=suggested, fixture_type=last_type, parent=self,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted and added:
+            self._refresh_fixture_list()
+            self.fixture_list.setCurrentRow(len(self.fixtures.fixtures) - 1)
+
+    def _add_multiple_fixtures(self):
+        last_type = (self.fixtures.fixtures[-1].fixture_type if self.fixtures.fixtures
+                     else DEFAULT_FIXTURE_TYPE)
+        added = []
+        dlg = BulkAddDialog(
+            lambda names, first, step, ftype: added.extend(
+                self.fixtures.add_fixtures(names, first, step, ftype)),
+            self.fixtures.next_start_address, fixture_type=last_type, parent=self,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted and added:
             self._refresh_fixture_list()

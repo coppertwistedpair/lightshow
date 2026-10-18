@@ -44,6 +44,8 @@ py -3 main.py
 2. Add each light under **Fixtures**: pick its model and enter the DMX start
    address set on the light. **Edit Selected** or a
    double-click changes the model or address later.
+   **Add Multiple** adds a batch of one model (e.g. "Wash 1" … "Wash 8") at
+   evenly spaced addresses; nothing is added if any address would overlap.
 3. Press **GO** for the color cycle, or pick an animation or holiday preset.
 
 ## Making a release
