@@ -5,7 +5,7 @@ Desktop app for running color cycles and animations on DMX uplights through an
 
 | Model | Ch1 | Ch2 | Ch3 | Ch4 | Ch5 | Ch6 |
 |---|---|---|---|---|---|---|
-| Rockville Rockwedge | Red | Green | Blue | Amber | White | UV |
+| Rockville Rockwedge | Red | Green | Blue | White | Amber | Purple |
 | Rockville BestPar 50 | Red | Green | Blue | White | Amber | Purple |
 
 Pick the model when adding a light. Models are defined in `FIXTURE_TYPES` in

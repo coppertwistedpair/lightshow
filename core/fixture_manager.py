@@ -9,7 +9,9 @@ COLOR_FIELDS = ('r', 'g', 'b', 'a', 'w', 'uv')  # red, green, blue, amber, white
 FIXTURE_TYPES = {
     'rockwedge': {
         'label': 'Rockville Rockwedge',
-        'channels': ('r', 'g', 'b', 'a', 'w', 'uv'),  # from the Rockwedge GDTF profile
+        # From the Rockville manual: R, G, B, White, Amber, Purple.
+        # (The GDTF profile in profiles/ swaps White/Amber; the manual is correct.)
+        'channels': ('r', 'g', 'b', 'w', 'a', 'uv'),
     },
     'bestpar50': {
         'label': 'Rockville BestPar 50',
