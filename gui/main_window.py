@@ -9,7 +9,9 @@ from PyQt6.QtCore import Qt, QEvent, QMimeData, QTimer
 from PyQt6.QtGui import QColor, QFont, QDrag
 import serial.tools.list_ports
 from core.animations import HOLIDAY_PRESETS
-from core.fixture_manager import FIXTURE_TYPES
+from core.fixture_manager import (
+    FIXTURE_TYPES, DEFAULT_FIXTURE_TYPE, channel_count, max_start_address,
+)
 
 
 class ColorSwatch(QPushButton):
@@ -196,7 +198,7 @@ class FixtureDialog(QDialog):
     is shown and the dialog stays open so the user can fix the value.
     """
 
-    def __init__(self, title, on_ok, name="", address=1, max_address=507,
+    def __init__(self, title, on_ok, name="", address=1,
                  fixture_type=None, name_editable=True, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -219,7 +221,7 @@ class FixtureDialog(QDialog):
         layout.addWidget(QLabel("DMX start address (must match the address set on the light):"))
         addr_row = QHBoxLayout()
         self.addr_spin = QSpinBox()
-        self.addr_spin.setRange(1, max_address)
+        self.addr_spin.setRange(1, max_start_address(self.type_combo.currentData()))
         self.addr_spin.setValue(address)
         self.addr_spin.setFixedWidth(80)
         addr_row.addWidget(self.addr_spin)
@@ -228,7 +230,8 @@ class FixtureDialog(QDialog):
         addr_row.addStretch()
         layout.addLayout(addr_row)
         self.addr_spin.valueChanged.connect(self._update_range_label)
-        self._update_range_label(address)
+        self.type_combo.currentIndexChanged.connect(self._on_type_changed)
+        self._update_range_label()
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -239,8 +242,15 @@ class FixtureDialog(QDialog):
 
         (self.edit if name_editable else self.addr_spin).setFocus()
 
-    def _update_range_label(self, start):
-        self.range_label.setText(f"uses channels {start}–{start + 5}")
+    def _on_type_changed(self):
+        # Models differ in channel count, so the highest valid start address changes too
+        self.addr_spin.setMaximum(max_start_address(self.type_combo.currentData()))
+        self._update_range_label()
+
+    def _update_range_label(self):
+        start = self.addr_spin.value()
+        count = channel_count(self.type_combo.currentData())
+        self.range_label.setText(f"uses channels {start}–{start + count - 1}  ({count} ch)")
 
     def _try_accept(self):
         name = self.edit.text().strip()
@@ -315,22 +325,22 @@ class MainWindow(QMainWindow):
     def _refresh_fixture_list(self):
         self.fixture_list.clear()
         for f in self.fixtures.fixtures:
-            end = f.start_address + 5
-            self.fixture_list.addItem(f"{f.name}  —  {f.type_label}  —  ch {f.start_address}–{end}")
+            self.fixture_list.addItem(
+                f"{f.name}  —  {f.type_label}  —  ch {f.start_address}–{f.end_address}")
 
     def _add_fixture(self):
-        suggested = self.fixtures.next_start_address()
+        # Pre-select the model of the last light added; most rigs add several of one kind
+        last_type = (self.fixtures.fixtures[-1].fixture_type if self.fixtures.fixtures
+                     else DEFAULT_FIXTURE_TYPE)
+        suggested = self.fixtures.next_start_address(last_type)
         if suggested is None:
             QMessageBox.critical(self, "Error", "No DMX addresses left (universe max 512 channels).")
             return
-        # Pre-select the model of the last light added; most rigs add several of one kind
-        last_type = self.fixtures.fixtures[-1].fixture_type if self.fixtures.fixtures else None
         added = []
         dlg = FixtureDialog(
             "Add Fixture",
             lambda name, addr, ftype: added.append(self.fixtures.add_fixture(name, addr, ftype)),
-            address=suggested, max_address=self.fixtures.MAX_START, fixture_type=last_type,
-            parent=self,
+            address=suggested, fixture_type=last_type, parent=self,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted and added:
             self._refresh_fixture_list()
@@ -342,23 +352,22 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Nothing Selected", "Click a fixture in the list first.")
             return
         fixture = self.fixtures.fixtures[row]
-        old_start = fixture.start_address
+        old_start, old_count = fixture.start_address, fixture.channel_count
         dlg = FixtureDialog(
             f"Edit Fixture — {fixture.name}",
             lambda _name, addr, ftype: self.fixtures.update_fixture(row, addr, ftype),
-            name=fixture.name, address=old_start, max_address=self.fixtures.MAX_START,
+            name=fixture.name, address=old_start,
             fixture_type=fixture.fixture_type, name_editable=False, parent=self,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            if fixture.start_address != old_start:
-                self._clear_channels(old_start)
+            self._clear_channels(old_start, old_count)
             self._refresh_fixture_list()
             self.fixture_list.setCurrentRow(row)
 
-    def _clear_channels(self, start):
+    def _clear_channels(self, start, count):
         # Zero channels no fixture uses any more, so a running show doesn't leave them stuck on
-        in_use = {f.start_address + i for f in self.fixtures.fixtures for i in range(6)}
-        for ch in range(start, start + 6):
+        in_use = {ch for f in self.fixtures.fixtures for ch in range(f.start_address, f.end_address + 1)}
+        for ch in range(start, start + count):
             if ch not in in_use:
                 self.dmx.set_channel(ch, 0)
 
@@ -373,9 +382,9 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if confirm == QMessageBox.StandardButton.Yes:
-            old_start = self.fixtures.fixtures[row].start_address
+            old = self.fixtures.fixtures[row]
             self.fixtures.remove_fixture(row)
-            self._clear_channels(old_start)
+            self._clear_channels(old.start_address, old.channel_count)
             self._refresh_fixture_list()
 
     # ── Control panel ─────────────────────────────────────────────────────────

@@ -1,12 +1,16 @@
 # Lightshow
 
 Desktop app for running color cycles and animations on DMX uplights through an
-**Enttec DMX USB Pro**. Supported lights (set them to **6-channel mode**):
+**Enttec DMX USB Pro**. Supported lights (set the light to the matching DMX mode):
 
-| Model | Ch1 | Ch2 | Ch3 | Ch4 | Ch5 | Ch6 |
-|---|---|---|---|---|---|---|
-| Rockville Rockwedge | Red | Green | Blue | White | Amber | Purple |
-| Rockville BestPar 50 | Red | Green | Blue | White | Amber | Purple |
+| Model | Channels | Layout |
+|---|---|---|
+| Rockville Rockwedge (6-ch) | 6 | Red, Green, Blue, White, Amber, Purple |
+| Rockville BestPar 50 (6-ch) | 6 | Red, Green, Blue, White, Amber, Purple |
+| Rockville BestPar 50 (10-ch) | 10 | Dimmer, Red, Green, Blue, White, Amber, Purple, Strobe, Function, Speed |
+
+In 10-channel mode the app holds the dimmer at full and leaves strobe and the
+built-in functions off; colors are controlled the same way as 6-channel mode.
 
 Pick the model when adding a light. Models are defined in `FIXTURE_TYPES` in
 `core/fixture_manager.py`.
@@ -38,7 +42,7 @@ py -3 main.py
 1. Plug in the Enttec, click **Refresh**, pick its COM port, click **Connect**.
    (Not sure which port? Device Manager → Ports (COM & LPT) → "USB Serial Port".)
 2. Add each light under **Fixtures**: pick its model and enter the DMX start
-   address set on the light (6 channels each). **Edit Selected** or a
+   address set on the light. **Edit Selected** or a
    double-click changes the model or address later.
 3. Press **GO** for the color cycle, or pick an animation or holiday preset.
 
